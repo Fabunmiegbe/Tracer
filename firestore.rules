@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    // Costs one extra document read per check; fine at this scale.
+    function owns(deviceId) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/devices/$(deviceId)).data.ownerId == request.auth.uid;
+    }
+    // Paired phones sign in with a custom token carrying { deviceId } (see functions/src/index.ts)
+    function isAgent(deviceId) { return signedIn() && request.auth.token.get('deviceId', '') == deviceId; }
+    function only(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    match /devices/{deviceId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.status == 'safe'
+        && request.resource.data.imei.matches('^[0-9]{15}$')
+        && (request.resource.data.get('imei2', null) == null
+            || request.resource.data.imei2.matches('^[0-9]{15}$'));
+      // IMEIs and owner can never change after registration
+      allow update: if signedIn() && resource.data.ownerId == request.auth.uid
+        && only(['make', 'model', 'serial', 'color', 'receiptPath', 'status', 'statusChangedAt', 'lockMessage']);
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      // Only the paired phone can write locations; only the owner can read them.
+      match /locations/{pointId} {
+        allow read: if owns(deviceId);
+        allow create: if isAgent(deviceId)
+          && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+          && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+          && request.resource.data.recordedAt == request.time;
+      }
+
+      match /commands/{commandId} {
+        allow read: if owns(deviceId) || isAgent(deviceId);
+        allow create: if owns(deviceId)
+          && request.resource.data.type in ['siren', 'message', 'stop']
+          && request.resource.data.handledAt == null;
+        allow update: if isAgent(deviceId) && only(['handledAt']);
+      }
+
+      match /reports/{reportId} { allow read: if owns(deviceId); } // written by Cloud Functions
+    }
+
+    // Public stolen-phone lookup: one document per SHA-256(IMEI). get is allowed, list is not.
+    match /blacklist/{imeiHash} { allow get: if true; }
+
+    // pairings/* and imeiIndex/* have no rule, so clients cannot touch them. Admin SDK only.
+  }
+}
