@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FindMyIMEI</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0b1220;color:#e2e8f0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1,h2{margin:0 0 6px}h2{font-size:17px}
+button,input,textarea{font:inherit;color:inherit}
+input,textarea{width:100%;background:#0b1220;border:1px solid #2a3858;border-radius:8px;padding:9px 10px;margin:4px 0 10px}
+label{font-size:13px;color:#94a3b8;display:block}
+button{border:1px solid #2a3858;background:#16213a;border-radius:8px;padding:9px 12px;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #38bdf8;outline-offset:1px}
+button.pri{background:#34d399;border-color:#34d399;color:#06251a;font-weight:600}
+button.bad{background:#fb7185;border-color:#fb7185;color:#2a0710;font-weight:600}
+button.on{background:#16213a}button.on.safe{border-color:#34d399}button.on.lost{border-color:#fbbf24}button.on.stolen{border-color:#fb7185}
+.card{background:#111a2e;border:1px solid #1e2a44;border-radius:10px;padding:14px}
+.mut{color:#94a3b8}.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.err,.stolen{color:#fb7185}.safe{color:#34d399}.lost{color:#fbbf24}
+.row{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}.row>button{flex:1}
+.between{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chip{font-size:12px;padding:1px 9px;border-radius:99px;border:1px solid currentColor}
+.wrap{max-width:440px;margin:0 auto;padding:28px 16px;display:grid;gap:14px}
+.app{display:grid;grid-template-columns:190px 1fr;min-height:100dvh}
+nav{padding:12px;border-right:1px solid #1e2a44;display:flex;flex-direction:column;gap:6px}
+nav b{padding:6px 8px;font-size:17px}
+nav button{text-align:left;background:none;border-color:transparent}
+nav button.cur{background:#16213a;border-color:#2a3858}
+main{padding:14px;min-width:0}
+.note{font-size:13px;color:#94a3b8;background:#0f1729;border:1px solid #1e2a44;border-radius:8px;padding:8px 10px;margin-bottom:12px}
+.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));margin-bottom:16px}
+.track{display:grid;gap:12px;grid-template-columns:minmax(0,2fr) minmax(250px,1fr)}
+#map{height:calc(100dvh - 150px);min-height:340px;border-radius:0 0 10px 10px;border:1px solid #1e2a44}
+.ban{padding:9px 12px;border-radius:10px 10px 0 0;font-size:14px;background:#16213a}
+.ban.online{background:#0d3a2e;color:#34d399}.ban.offline{background:#3a2f0d;color:#fbbf24}.ban.stolen{background:#3d1520;color:#fb7185}
+.dot{display:block;position:relative;width:14px;height:14px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px #0b1220;margin:1px}
+.live::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--c);animation:p 1.8s ease-out infinite}
+@keyframes p{from{transform:scale(1);opacity:.7}to{transform:scale(3.2);opacity:0}}
+@media(prefers-reduced-motion:reduce){.live::after{animation:none}}
+@media(max-width:760px){.app{grid-template-columns:1fr}nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid #1e2a44}nav b{display:none}nav button{white-space:nowrap}.track{grid-template-columns:1fr}#map{height:55dvh}}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #1e2a44;padding:5px;text-align:left}
+#ov{position:fixed;inset:0;background:#e11d48;color:#fff;display:grid;place-content:center;text-align:center;padding:24px;z-index:9}
+#ov p{font-size:24px;font-weight:600}[hidden]{display:none!important}
+@media print{body *{visibility:hidden}#rep,#rep *{visibility:visible}#rep{position:absolute;left:0;top:0;width:100%;color:#000;background:#fff;padding:20px}#rep td,#rep th{border-color:#999}}
+</style>
+</head>
+<body>
+
+<div id="cfgerr" class="wrap err" hidden>Open index.html and paste your Firebase web config into the CFG block at the top of the script.</div>
+
+<div id="login" class="wrap" hidden>
+  <div><h1>FindMyIMEI</h1><p class="mut">Register your phone and find it if it goes missing.</p></div>
+  <button id="g" class="pri">Sign in with Google</button><p id="lerr" class="err" role="alert"></p>
+  <div class="card"><h2>Buying a used phone?</h2><div data-lk></div></div>
+</div>
+
+<div id="app" class="app" hidden>
+  <nav>
+    <b>FindMyIMEI</b>
+    <button data-v="devices">My devices</button>
+    <button data-v="map">Live map</button>
+    <button data-v="report">Police report</button>
+    <button data-v="lookup">IMEI lookup</button>
+    <button id="out">Sign out</button>
+  </nav>
+  <main>
+    <p class="note">Tracking only works on phones where the owner has opened the pairing link and approved location sharing. It cannot find a phone from its IMEI alone.</p>
+
+    <section id="v-devices">
+      <h2>My devices</h2><div id="list" class="grid"></div>
+      <div class="card" style="max-width:520px"><h2>Add a device</h2>
+        <form id="addf">
+          <label>Make<input name="make" required></label>
+          <label>Model<input name="model" required></label>
+          <label>IMEI (dial *#06# on the phone)<input name="imei" inputmode="numeric" maxlength="15" required></label>
+          <label>Second IMEI, if dual SIM (optional)<input name="imei2" inputmode="numeric" maxlength="15"></label>
+          <label>Serial number (optional)<input name="serial"></label>
+          <label>Colour (optional)<input name="color"></label>
+          <button class="pri">Save device</button><p id="addmsg" class="err" role="alert"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="v-map" hidden>
+      <div class="track">
+        <div><div id="ban" class="ban" role="status"></div><div id="map"></div></div>
+        <div id="panel" class="card"></div>
+      </div>
+    </section>
+
+    <section id="v-report" hidden>
+      <div class="between"><h2>Police report</h2><button id="print" class="pri">Print or save as PDF</button></div>
+      <div id="rep" class="card"></div>
+    </section>
+
+    <section id="v-lookup" hidden><div class="card" style="max-width:520px"><h2>IMEI lookup</h2><div data-lk></div></div></section>
+  </main>
+</div>
+
+<div id="agent" class="wrap" hidden>
+  <h1>Location sharing for this phone</h1>
+  <p class="mut">While this is on, the phone sends its location to the FindMyIMEI account that created this link, so the owner can find it if it goes missing. You can stop at any time.</p>
+  <button id="go" class="pri">Start sharing</button>
+  <p id="live" class="safe" hidden role="status">Sharing location. Keep this tab open with the screen on.</p>
+  <button id="stop" hidden>Stop sharing</button>
+  <p id="aerr" class="err" role="alert"></p>
+</div>
+<div id="ov" hidden><div><p></p><button>Dismiss</button></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import {getAuth,GoogleAuthProvider,signInWithPopup,signInAnonymously,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import {getFirestore,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,collection,query,where,orderBy,limit,onSnapshot,writeBatch,serverTimestamp} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+/* Paste your Firebase web config here (Project settings > Your apps) */
+const CFG={apiKey:"PASTE_API_KEY",authDomain:"PASTE.firebaseapp.com",projectId:"PASTE",appId:"PASTE"};
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const luhn=s=>{if(!/^\d{15}$/.test(s))return false;let t=0;for(let i=0;i<15;i++){let d=+s[14-i];if(i%2){d*=2;if(d>9)d-=9}t+=d}return t%10===0};
+const ago=ms=>{const s=Math.max(0,(Date.now()-ms)/1e3|0);return s<60?s+'s ago':s<3600?(s/60|0)+' min ago':s<86400?(s/3600|0)+' h ago':(s/86400|0)+' d ago'};
+
+if(CFG.apiKey.startsWith('PASTE')){$('#cfgerr').hidden=false;throw new Error('Missing Firebase config')}
+const AGENT=location.hash.startsWith('#agent=');
+const app=initializeApp(CFG,AGENT?'agent':'[DEFAULT]');
+const auth=getAuth(app),db=getFirestore(app);
+
+/* siren, shared by agent mode */
+let ctx,osc,lfo;
+const siren=()=>{if(ctx)return;ctx=new AudioContext();osc=ctx.createOscillator();lfo=ctx.createOscillator();const g=ctx.createGain();osc.type='square';osc.frequency.value=900;lfo.frequency.value=2;g.gain.value=300;lfo.connect(g).connect(osc.frequency);osc.connect(ctx.destination);osc.start();lfo.start()};
+const quiet=()=>{if(!ctx)return;osc.stop();lfo.stop();ctx.close();ctx=null};
+
+/* lookup forms, used on the login screen and inside the app */
+document.querySelectorAll('[data-lk]').forEach(el=>el.innerHTML='<form data-lookup><label>IMEI (dial *#06# on the phone)<input name="imei" inputmode="numeric" maxlength="15" required></label><button class="pri">Check</button><p class="res" role="status"></p></form>');
+document.addEventListener('submit',async e=>{
+  const f=e.target;if(!f.hasAttribute('data-lookup'))return;e.preventDefault();
+  const i=f.imei.value.trim(),r=f.querySelector('.res');
+  if(!luhn(i)){r.className='res err';r.textContent='That is not a valid IMEI. Check the 15 digits.';return}
+  try{const s=await getDoc(doc(db,'blacklist',i));
+    if(s.exists()){const d=s.data();r.className='res stolen';r.textContent='Reported '+d.status+(d.at?' on '+d.at.toDate().toLocaleDateString():'')+'. Do not buy this phone.'}
+    else{r.className='res';r.textContent='Not reported on this registry. That does not prove the phone is clean.'}
+  }catch{r.className='res err';r.textContent='Lookup failed. Try again.'}
+});
+
+if(AGENT){
+  /* ---------- companion agent (runs on the phone being protected) ---------- */
+  $('#agent').hidden=false;
+  let wid,usub,last=0;const aerr=t=>$('#aerr').textContent=t;
+  $('#ov button').onclick=()=>{$('#ov').hidden=true;quiet()};
+  $('#go').onclick=async()=>{
+    aerr('');const code=location.hash.slice(7);let id;
+    try{
+      await signInAnonymously(auth);
+      const p=await getDoc(doc(db,'pairings',code));if(!p.exists())throw 0;id=p.data().deviceId;
+      const ag=doc(db,'devices',id,'agents',auth.currentUser.uid);
+      if(!(await getDoc(ag)).exists())await setDoc(ag,{code,at:serverTimestamp()});
+    }catch{return aerr('This pairing code is not valid. Create a new one from your dashboard.')}
+    if(!navigator.geolocation)return aerr('This browser cannot share location.');
+    wid=navigator.geolocation.watchPosition(async({coords:c})=>{
+      if(Date.now()-last<1e4)return;last=Date.now();
+      try{await addDoc(collection(db,'devices',id,'locations'),{lat:c.latitude,lng:c.longitude,accuracy:c.accuracy,recordedAt:serverTimestamp()});aerr('')}
+      catch{aerr('Could not send location. Check your connection or pair again.')}
+    },e=>aerr(e.code===1?'Location permission was denied. Allow it in the browser settings.':'Could not get a location fix.'),{enableHighAccuracy:true,maximumAge:5000});
+    usub=onSnapshot(query(collection(db,'devices',id,'commands'),where('handledAt','==',null)),s=>s.docChanges().filter(c=>c.type==='added').forEach(c=>{
+      const x=c.doc.data(),fresh=Date.now()-(x.createdAt?x.createdAt.toMillis():Date.now())<3e5;
+      if(x.type==='siren'&&fresh)siren();
+      if(x.type==='stop'&&fresh)quiet();
+      if(x.type==='message'){$('#ov p').textContent=x.payload.text||'';$('#ov').hidden=false}
+      updateDoc(c.doc.ref,{handledAt:serverTimestamp()}).catch(()=>{});
+    }));
+    $('#go').hidden=true;$('#stop').hidden=false;$('#live').hidden=false;
+  };
+  $('#stop').onclick=()=>{navigator.geolocation.clearWatch(wid);usub&&usub();quiet();signOut(auth);$('#go').hidden=false;$('#stop').hidden=true;$('#live').hidden=true};
+}else{
+  /* ---------- owner dashboard ---------- */
+  let me=null,devs=[],cur=null,pts=[],map,layer,fresh=false,subs=[],locSub;
+  const COL={online:'#34d399',offline:'#fbbf24',stolen:'#fb7185'};
+  const dev=()=>devs.find(d=>d.id===cur);
+  const toast=t=>{const e=$('#toast');if(e){e.textContent=t;setTimeout(()=>e.textContent='',4000)}};
+
+  function show(v){
+    document.querySelectorAll('main>section').forEach(s=>s.hidden=s.id!=='v-'+v);
+    document.querySelectorAll('nav [data-v]').forEach(b=>b.classList.toggle('cur',b.dataset.v===v));
+    if(v==='map'){initMap();setTimeout(()=>{map.invalidateSize();drawMap()},60)}
+    if(v==='report')renderReport();
+  }
+  function initMap(){
+    if(map)return;
+    map=L.map('map',{zoomControl:false}).setView([6.5,7.5],5);
+    L.control.zoom({position:'bottomright'}).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap, CARTO',maxZoom:19}).addTo(map);
+    layer=L.layerGroup().addTo(map);
+  }
+  const mode=()=>{const l=pts.at(-1);if(!l)return'none';if(Date.now()-l.t<9e4)return'online';return dev()?.status==='stolen'?'stolen':'offline'};
+  function drawBan(){
+    const m=mode(),l=pts.at(-1),b=$('#ban');b.className='ban '+m;
+    b.textContent=m==='none'?'No location yet. Pair the phone to start tracking.':m==='online'?'Live. Updated '+ago(l.t)+(l.acc?', accurate to about '+Math.round(l.acc)+' m.':'.'):'Offline. Last seen '+ago(l.t)+'. Showing the path before it went dark.';
+  }
+  function drawMap(){
+    if(!map||!layer)return;layer.clearLayers();drawBan();
+    if(!pts.length)return;
+    const m=mode(),c=COL[m]||COL.offline,l=pts.at(-1);
+    L.polyline(pts.map(p=>[p.lat,p.lng]),{color:c,weight:3,opacity:.6,dashArray:m==='online'?null:'6 8'}).addTo(layer);
+    pts.slice(0,-1).forEach((p,i)=>L.circleMarker([p.lat,p.lng],{radius:3,color:c,weight:0,fillColor:c,fillOpacity:.25+.6*i/pts.length}).bindTooltip(new Date(p.t).toLocaleString()).addTo(layer));
+    if(l.acc)L.circle([l.lat,l.lng],{radius:l.acc,color:c,weight:1,fillOpacity:.12}).addTo(layer);
+    L.marker([l.lat,l.lng],{icon:L.divIcon({className:'',iconSize:[16,16],iconAnchor:[8,8],html:'<span class="dot'+(m==='online'?' live':'')+'" style="--c:'+c+'"></span>'})}).addTo(layer);
+    if(fresh){map.setView([l.lat,l.lng],Math.max(map.getZoom(),15));fresh=false}
+  }
+  function track(id){
+    cur=id;fresh=true;pts=[];locSub&&locSub();
+    locSub=onSnapshot(query(collection(db,'devices',id,'locations'),orderBy('recordedAt','desc'),limit(200)),s=>{
+      pts=s.docs.map(d=>{const x=d.data({serverTimestamps:'estimate'});return{lat:x.lat,lng:x.lng,acc:x.accuracy,t:x.recordedAt.toMillis()}}).reverse();
+      drawMap();
+    });
+    renderPanel();show('map');
+  }
+  setInterval(()=>{if(map&&cur)drawMap()},15000);
+
+  function renderDevices(){
+    $('#list').innerHTML=devs.length?devs.map(d=>'<div class="card"><div class="between"><b>'+esc(d.make)+' '+esc(d.model)+'</b><span class="chip '+d.status+'">'+d.status+'</span></div><p class="mut mono">'+esc(d.imei)+'</p><button data-track="'+d.id+'">Open on map</button></div>').join(''):'<p class="mut">No devices yet. Add one below.</p>';
+  }
+  function renderPanel(){
+    const d=dev(),p=$('#panel');
+    if(!d){p.innerHTML='<p class="mut">Choose a device under My devices.</p>';return}
+    p.innerHTML='<h2>'+esc(d.make)+' '+esc(d.model)+'</h2><p class="mut mono">IMEI '+esc(d.imei)+'</p>'
+    +'<div class="row">'+['safe','lost','stolen'].map(s=>'<button data-st="'+s+'" class="'+(d.status===s?'on '+s:'')+'" aria-pressed="'+(d.status===s)+'">'+s+'</button>').join('')+'</div>'
+    +'<label>Lock screen message<textarea id="msg" rows="3" maxlength="200" placeholder="This phone is lost. Please call 0800 000 0000 for a reward.">'+esc(d.lockMessage||'')+'</textarea></label>'
+    +'<button id="sm">Show message on phone</button>'
+    +'<div class="row"><button id="si" class="bad">Play siren</button><button id="ss">Stop siren</button></div>'
+    +'<hr style="border-color:#1e2a44"><button id="pr">Pair this phone</button><div id="po" style="margin:8px 0"></div><button id="rv">Disconnect paired phones</button>'
+    +'<p id="toast" class="mut" role="status"></p>';
+  }
+  const cmd=(type,payload={})=>addDoc(collection(db,'devices',cur,'commands'),{type,payload,handledAt:null,createdAt:serverTimestamp()})
+    .then(()=>toast(mode()==='online'?'Sent. The phone will act within seconds.':'Queued. The phone will act when it reconnects.'),()=>toast('Could not send. Try again.'));
+
+  async function setStatus(st){
+    const d=dev();if(!d||d.status===st)return;
+    const b=writeBatch(db),m=($('#msg')?.value||'').trim();
+    b.update(doc(db,'devices',cur),{status:st,statusAt:serverTimestamp(),lockMessage:st==='safe'?null:(m||null)});
+    [d.imei,d.imei2].filter(Boolean).forEach(i=>{const r=doc(db,'blacklist',i);st==='safe'?b.delete(r):b.set(r,{ownerId:me.uid,status:st,at:serverTimestamp()})});
+    try{await b.commit()}catch{toast('Could not change the status. Try again.')}
+  }
+  async function pair(){
+    const A='abcdefghjkmnpqrstuvwxyz23456789',code=[...crypto.getRandomValues(new Uint8Array(10))].map(x=>A[x%A.length]).join('');
+    try{
+      await setDoc(doc(db,'pairings',code),{deviceId:cur,ownerId:me.uid,at:serverTimestamp()});
+      const link=location.origin+location.pathname+'#agent='+code;
+      $('#po').innerHTML='<input readonly value="'+esc(link)+'" aria-label="Pairing link"><span class="mut" style="font-size:13px">Open this link on the phone you want to protect, then tap Start sharing.</span>';
+      $('#po input').onfocus=e=>e.target.select();
+    }catch{toast('Could not create a pairing link.')}
+  }
+  async function revoke(){
+    try{
+      const s=await getDocs(collection(db,'devices',cur,'agents'));
+      await Promise.all(s.docs.flatMap(a=>[deleteDoc(doc(db,'pairings',a.data().code)).catch(()=>{}),deleteDoc(a.ref)]));
+      toast('Paired phones disconnected.');
+    }catch{toast('Could not disconnect. Try again.')}
+  }
+  function renderReport(){
+    const d=dev(),r=$('#rep');
+    if(!d){r.innerHTML='<p class="mut">Open a device on the map first, then come back here.</p>';return}
+    const rows=pts.slice(-25).reverse().map(p=>'<tr><td>'+new Date(p.t).toLocaleString()+'</td><td>'+p.lat.toFixed(5)+', '+p.lng.toFixed(5)+'</td><td>'+(p.acc?Math.round(p.acc)+' m':'')+'</td></tr>').join('');
+    r.innerHTML='<h2>Lost or stolen phone report</h2><p>Generated '+new Date().toLocaleString()+'</p>'
+    +'<h3>Owner</h3><p>'+esc(me.displayName||'')+' ('+esc(me.email||'')+')</p>'
+    +'<h3>Device</h3><p>'+esc(d.make)+' '+esc(d.model)+(d.color?', '+esc(d.color):'')+'<br>IMEI 1: '+esc(d.imei)+(d.imei2?'<br>IMEI 2: '+esc(d.imei2):'')+(d.serial?'<br>Serial: '+esc(d.serial):'')+'<br>Status: '+d.status+'</p>'
+    +'<h3>Last known locations</h3>'+(rows?'<table><tr><th>Time</th><th>Coordinates</th><th>Accuracy</th></tr>'+rows+'</table>':'<p>No location data was recorded for this device.</p>')
+    +'<p style="font-size:12px">Locations come from a companion agent the owner approved on the phone. Coordinates can be entered into any map service.</p>';
+  }
+
+  /* events */
+  document.addEventListener('click',e=>{
+    const v=e.target.closest('[data-v]'),t=e.target.closest('[data-track]');
+    if(v)show(v.dataset.v);if(t)track(t.dataset.track);
+  });
+  $('#panel').addEventListener('click',e=>{
+    const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.st)setStatus(b.dataset.st);
+    else if(b.id==='sm'){const m=$('#msg').value.trim();m?cmd('message',{text:m}):toast('Type a message first.')}
+    else if(b.id==='si')cmd('siren');else if(b.id==='ss')cmd('stop');
+    else if(b.id==='pr')pair();else if(b.id==='rv')revoke();
+  });
+  $('#print').onclick=()=>window.print();
+  $('#out').onclick=()=>signOut(auth);
+  $('#g').onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(()=>$('#lerr').textContent='Sign-in failed. Check that this site address is in Authorized domains in Firebase.');
+  $('#addf').onsubmit=async e=>{
+    e.preventDefault();const f=new FormData(e.target),imei=f.get('imei').trim(),imei2=f.get('imei2').trim(),m=$('#addmsg');m.textContent='';
+    if(!luhn(imei)||(imei2&&!luhn(imei2)))return m.textContent='Enter valid 15-digit IMEIs.';
+    const ref=doc(collection(db,'devices')),b=writeBatch(db);
+    b.set(ref,{ownerId:me.uid,make:f.get('make').trim(),model:f.get('model').trim(),imei,imei2:imei2||null,serial:f.get('serial').trim(),color:f.get('color').trim(),status:'safe',statusAt:serverTimestamp(),lockMessage:null,createdAt:serverTimestamp()});
+    b.set(doc(db,'imeis',imei),{ownerId:me.uid,deviceId:ref.id});
+    if(imei2)b.set(doc(db,'imeis',imei2),{ownerId:me.uid,deviceId:ref.id});
+    try{await b.commit();e.target.reset()}catch{m.textContent='Could not save. This IMEI may already be registered.'}
+  };
+
+  onAuthStateChanged(auth,u=>{
+    me=u;subs.forEach(f=>f());subs=[];
+    $('#login').hidden=!!u;$('#app').hidden=!u;
+    if(!u)return;
+    subs.push(onSnapshot(query(collection(db,'devices'),where('ownerId','==',u.uid)),s=>{
+      devs=s.docs.map(d=>({id:d.id,...d.data()}));renderDevices();renderPanel();
+    }));
+    show('devices');
+  });
+}
+</script>
+</body>
+</html>
