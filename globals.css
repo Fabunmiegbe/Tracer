@@ -1,9 +1,0 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-body { background: #0b1220; color: #e2e8f0; }
-.fmi-dot{position:relative;display:block;width:14px;height:14px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px #0f172a}
-.fmi-live::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--c);animation:fmi 1.8s ease-out infinite}
-@keyframes fmi{from{transform:scale(1);opacity:.7}to{transform:scale(3.2);opacity:0}}
-@media (prefers-reduced-motion:reduce){.fmi-live::after{animation:none}}
