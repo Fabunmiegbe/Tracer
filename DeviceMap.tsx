@@ -18,8 +18,8 @@ const pulseIcon = (color: string, live: boolean) =>
 
 export default function DeviceMap({ points, mode }: { points: Point[]; mode: MapMode }) {
   const el = useRef<HTMLDivElement>(null);
-  const map = useRef<L.Map>();
-  const layer = useRef<L.LayerGroup>();
+  const map = useRef<L.Map | undefined>(undefined);
+  const layer = useRef<L.LayerGroup | undefined>(undefined);
 
   useEffect(() => {
     if (!el.current || map.current) return;
