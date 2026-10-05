@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function me() { return request.auth.uid; }
+    function signedIn() { return request.auth != null; }
+    // Phones that pair via the agent link sign in anonymously; only real accounts may register or flag devices.
+    function real() { return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous'; }
+    function owns(id) { return signedIn() && get(/databases/$(db)/documents/devices/$(id)).data.ownerId == me(); }
+    function agent(id) { return signedIn() && exists(/databases/$(db)/documents/devices/$(id)/agents/$(me())); }
+
+    match /devices/{id} {
+      allow read: if signedIn() && resource.data.ownerId == me();
+      allow create: if real()
+        && request.resource.data.ownerId == me()
+        && request.resource.data.status == 'safe'
+        && request.resource.data.keys().hasOnly(['ownerId','make','model','imei','imei2','serial','color','status','statusAt','lockMessage','createdAt']);
+      allow update: if real() && resource.data.ownerId == me()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','statusAt','lockMessage'])
+        && request.resource.data.status in ['safe','lost','stolen'];
+      allow delete: if real() && resource.data.ownerId == me();
+
+      match /locations/{l} {
+        allow read: if owns(id);
+        allow create: if agent(id)
+          && request.resource.data.recordedAt == request.time
+          && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+          && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180;
+      }
+
+      match /commands/{c} {
+        allow read: if owns(id) || agent(id);
+        allow create: if owns(id)
+          && request.resource.data.type in ['siren','message','stop']
+          && request.resource.data.keys().hasOnly(['type','payload','handledAt','createdAt']);
+        allow update: if agent(id)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['handledAt']);
+      }
+
+      // A phone becomes an agent by presenting a valid pairing code the owner created.
+      match /agents/{u} {
+        allow read: if owns(id) || (signedIn() && u == me());
+        allow create: if signedIn() && u == me()
+          && request.resource.data.keys().hasOnly(['code','at'])
+          && get(/databases/$(db)/documents/pairings/$(request.resource.data.code)).data.deviceId == id;
+        allow delete: if owns(id);
+      }
+    }
+
+    // One document per registered IMEI, so the same IMEI cannot be registered twice.
+    match /imeis/{i} {
+      allow create: if real()
+        && request.resource.data.ownerId == me()
+        && request.resource.data.keys().hasOnly(['ownerId','deviceId']);
+      allow delete: if real() && resource.data.ownerId == me();
+    }
+
+    // Pairing codes: readable only by someone who already knows the code.
+    match /pairings/{code} {
+      allow get: if signedIn();
+      allow create: if real()
+        && request.resource.data.ownerId == me()
+        && owns(request.resource.data.deviceId)
+        && request.resource.data.keys().hasOnly(['deviceId','ownerId','at']);
+      allow delete: if real() && resource.data.ownerId == me();
+    }
+
+    // Public stolen-phone registry: anyone can look up one IMEI, nobody can list them.
+    match /blacklist/{i} {
+      allow get: if true;
+      allow create: if real()
+        && request.resource.data.ownerId == me()
+        && request.resource.data.status in ['lost','stolen']
+        && request.resource.data.keys().hasOnly(['ownerId','status','at'])
+        && get(/databases/$(db)/documents/imeis/$(i)).data.ownerId == me();
+      allow update: if real()
+        && resource.data.ownerId == me()
+        && request.resource.data.ownerId == me()
+        && request.resource.data.status in ['lost','stolen'];
+      allow delete: if signedIn() && (resource == null || resource.data.ownerId == me());
+    }
+  }
+}
